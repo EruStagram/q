@@ -744,15 +744,26 @@
                 return window.showToast("Sistem çalışmıyor! Kodun içindeki firebaseConfig ayarları hatalı yapıştırılmış.", "fa-triangle-exclamation", true);
             }
 
-            const email = document.getElementById('auth-email').value;
-            const password = document.getElementById('auth-password').value;
-            const username = document.getElementById('auth-username').value;
+            // Girdilerin sağındaki-solundaki yanlışlıkla atılan boşlukları temizleyelim (trim)
+            const email = document.getElementById('auth-email').value.trim();
+            const password = document.getElementById('auth-password').value; 
+            const username = document.getElementById('auth-username').value.trim();
             const btn = document.getElementById('btn-auth-main');
+
+            // Firebase'e bile gitmeden kendi akıllı uyarımızı ekleyelim
+            if (!email || !password) {
+                return window.showToast('Lütfen e-posta ve şifrenizi girin.', 'fa-triangle-exclamation', true);
+            }
+            if (password.length < 6) {
+                return window.showToast('Güvenlik için şifreniz en az 6 haneli olmalıdır!', 'fa-shield-halved', true);
+            }
+            if (isRegisterMode && !username) {
+                return window.showToast('Lütfen kendinize bir Görünen Ad (Sanal Kimlik) belirleyin.', 'fa-user-pen', true);
+            }
 
             btn.innerText = "Bağlanıyor...";
             try {
-                // Eğer Canvas Önizleme ekranındaysak, eksik anahtar (API KEY) hatasını almamak için 
-                // sistemin bize sağladığı varsayılan giriş yöntemini kullanıyoruz.
+                // Eğer Canvas Önizleme ekranındaysak, özel giriş
                 if (isCanvas) {
                     if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                         await signInWithCustomToken(auth, __initial_auth_token);
@@ -765,16 +776,7 @@
                     }
                     window.showToast('Önizleme ağında oturum açıldı.', 'fa-check');
                 } else {
-                    // Kendi Firebase projenizi bağladığınız zamanki akış
-                    if (!email || !password) {
-                        btn.innerText = isRegisterMode ? "Sanal Kimlik Oluştur" : "Ağa Bağlan (Giriş)";
-                        return window.showToast('Lütfen e-posta ve şifrenizi girin.', 'fa-triangle-exclamation', true);
-                    }
-                    if (isRegisterMode && !username) {
-                        btn.innerText = "Sanal Kimlik Oluştur";
-                        return window.showToast('Lütfen görünen adınızı girin.', 'fa-triangle-exclamation', true);
-                    }
-
+                    // GitHub/Kendi sitenize attığınızda çalışacak GERÇEK FIREBASE KAYIT VE GİRİŞ SİSTEMİ
                     if (isRegisterMode) {
                         const userCred = await createUserWithEmailAndPassword(auth, email, password);
                         await updateProfile(userCred.user, { displayName: username });
@@ -787,20 +789,21 @@
             } catch (error) {
                 console.error("Giriş Hatası:", error);
                 
-                // Hatayı kullanıcının anlayacağı dile çevir ve kırmızı baloncukla göster
-                let msg = error.message;
-                if(msg.includes('invalid-credential') || msg.includes('user-not-found') || msg.includes('wrong-password')) {
-                    msg = "E-posta veya şifre hatalı! Yeniysen önce alttaki 'Kayıt Ol' tuşuna bas.";
-                } else if(msg.includes('email-already-in-use')) {
-                    msg = "Bu e-posta adresi zaten ağa kayıtlı! Giriş yapmayı dene.";
-                } else if(msg.includes('weak-password')) {
-                    msg = "Güvenlik için şifre en az 6 haneli olmalıdır!";
-                } else if(msg.includes('operation-not-allowed')) {
+                // Firebase hatalarını (error.code) alıp net bir şekilde ekrana kırmızıyla yansıtıyoruz
+                let msg = "Bir hata oluştu: " + error.message;
+                
+                if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                    msg = "E-posta veya şifre hatalı! Yeniysen alttaki tuşla 'Kayıt Ol' ekranına geç.";
+                } else if (error.code === 'auth/email-already-in-use') {
+                    msg = "Bu e-posta zaten ağa kayıtlı! Hesabın varsa direkt giriş yapmayı dene.";
+                } else if (error.code === 'auth/weak-password') {
+                    msg = "Şifreniz çok zayıf. En az 6 haneli olmalıdır!";
+                } else if (error.code === 'auth/operation-not-allowed') {
                     msg = "Firebase ayarlarından Email/Şifre girişini AÇMAYI unutmuşsunuz!";
-                } else if(msg.includes('api-key-not-valid')) {
-                    msg = "API Key hatalı! Koda Firebase ayarlarını eksik veya yanlış yapıştırmışsınız.";
-                } else if(msg.includes('missing-password')) {
-                    msg = "Lütfen şifrenizi giriniz!";
+                } else if (error.code === 'auth/invalid-email') {
+                    msg = "Lütfen geçerli bir e-posta adresi yazın. (Örn: aile@gmail.com)";
+                } else if (error.code === 'auth/api-key-not-valid') {
+                    msg = "API Key hatalı! Kod ayarlarını kontrol edin.";
                 }
                 
                 window.showToast(msg, 'fa-triangle-exclamation', true);
