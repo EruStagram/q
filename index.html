@@ -406,7 +406,7 @@
                         </div>
 
                         <!-- Chat List -->
-                        <div class="space-y-3">
+                        <div class="space-y-3" id="main-chat-list">
                             <!-- Chat Item -->
                             <div class="vision-glass p-3 rounded-2xl flex items-center cursor-pointer btn-press hover:bg-white/5" onclick="openChatRoom()">
                                 <div class="w-12 h-12 rounded-full vision-glass p-[1px] mr-3 relative">
@@ -419,6 +419,15 @@
                                 </div>
                                 <i class="fa-solid fa-chevron-right text-white/30 text-sm"></i>
                             </div>
+                        </div>
+
+                        <!-- Network Users List -->
+                        <h3 class="text-sm font-medium text-white/50 mt-8 mb-3 px-2 flex items-center justify-between">
+                            <span>Ağdaki Kişiler</span>
+                            <span class="vision-glass px-2 py-0.5 rounded-full text-[10px]" id="network-users-count">0</span>
+                        </h3>
+                        <div class="space-y-3 overflow-y-auto pb-24 hide-scrollbar" id="network-users-list">
+                            <!-- Ağdaki kullanıcılar buraya yüklenecek -->
                         </div>
                     </div>
 
@@ -435,7 +444,7 @@
                             </div>
                             <div>
                                 <h3 class="font-medium text-white text-glow text-sm">Aile Grubu</h3>
-                                <p class="text-[10px] text-white/50">3 kişi çevrimiçi</p>
+                                <p class="text-[10px] text-white/50" id="chat-room-member-count">Bağlanıyor...</p>
                             </div>
                         </div>
 
@@ -574,7 +583,7 @@
             </div>
 
             <!-- Toast Notifications Container -->
-            <div id="toast-container" class="fixed top-12 left-1/2 transform -translate-x-1/2 z-[110] flex flex-col items-center pointer-events-none w-max"></div>
+            <div id="toast-container" class="fixed top-12 left-1/2 transform -translate-x-1/2 z-[250] flex flex-col items-center pointer-events-none w-max"></div>
 
             <!-- Apple Vision Pro Style Floating Dock -->
             <div class="fixed bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-[420px] h-16 vision-glass-heavy rounded-full flex justify-around items-center px-2 z-50" id="bottom-nav">
@@ -615,12 +624,18 @@
     <!-- FIREBASE & JAVASCRIPT LOGIC -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, doc, updateDoc, arrayUnion, arrayRemove, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, serverTimestamp, doc, updateDoc, arrayUnion, arrayRemove, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        /* ======================================================================
-           FIREBASE AYARLARI BURAYA (2. ADIMDA ALACAKSIN)
-        ====================================================================== */
+        // --- Canvas Önizleme Kontrolü & Firebase Ayarları ---
+        let firebaseConfig;
+        let isCanvas = false;
+        
+        if (typeof __firebase_config !== 'undefined') {
+            firebaseConfig = JSON.parse(__firebase_config);
+            isCanvas = true; // Canvas ortamında olduğumuzu anlıyoruz
+        } else {
+            // Burası kendi sitenize / GitHub'a yüklediğinizde çalışacak olan kodlar
         const firebaseConfig = {
             apiKey: "AIzaSyB_neU7BUAbd_5voqCUMLzjibbOc-29ATk",
             authDomain: "erustagram.firebaseapp.com",
@@ -634,6 +649,18 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // Canvas'ın zorunlu dosya yollarını (Paths) güvenli bir şekilde oluşturmak için yardımcı fonksiyon
+        const getColl = (name) => {
+            if (isCanvas) return collection(db, 'artifacts', appId, 'public', 'data', name);
+            return collection(db, name);
+        };
+
+        const getDocRef = (collName, docId) => {
+            if (isCanvas) return doc(db, 'artifacts', appId, 'public', 'data', collName, docId);
+            return doc(db, collName, docId);
+        };
 
         // --- Global State ---
         let currentSelectedMedia = null;
@@ -641,7 +668,7 @@
         let isRegisterMode = false;
 
         // ==========================================
-        // KIMLIK DOGRULAMA (AUTH) FONKSIYONLARI
+        // KİMLİK DOĞRULAMA (AUTH) FONKSİYONLARI
         // ==========================================
 
         window.toggleAuthMode = () => {
@@ -657,21 +684,44 @@
             const username = document.getElementById('auth-username').value;
             const btn = document.getElementById('btn-auth-main');
 
-            if (!email || !password) return showToast('Bilgileri eksiksiz girin.', 'fa-triangle-exclamation');
-            if (isRegisterMode && !username) return showToast('Lütfen görünen adınızı girin.', 'fa-triangle-exclamation');
-
             btn.innerText = "Bağlanıyor...";
             try {
-                if (isRegisterMode) {
-                    const userCred = await createUserWithEmailAndPassword(auth, email, password);
-                    await updateProfile(userCred.user, { displayName: username });
-                    showToast('Ağa başarıyla katıldınız!', 'fa-check');
+                // Eğer Canvas Önizleme ekranındaysak, eksik anahtar (API KEY) hatasını almamak için 
+                // sistemin bize sağladığı varsayılan giriş yöntemini kullanıyoruz.
+                if (isCanvas) {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                    
+                    if (username) {
+                        await updateProfile(auth.currentUser, { displayName: username });
+                    }
+                    window.showToast('Önizleme ağında oturum açıldı.', 'fa-check');
                 } else {
-                    await signInWithEmailAndPassword(auth, email, password);
-                    showToast('Uzamsal ağa dönüldü.', 'fa-check');
+                    // Kendi Firebase projenizi bağladığınız zamanki akış
+                    if (!email || !password) {
+                        btn.innerText = isRegisterMode ? "Sanal Kimlik Oluştur" : "Ağa Bağlan (Giriş)";
+                        return window.showToast('Bilgileri eksiksiz girin.', 'fa-triangle-exclamation');
+                    }
+                    if (isRegisterMode && !username) {
+                        btn.innerText = "Sanal Kimlik Oluştur";
+                        return window.showToast('Lütfen görünen adınızı girin.', 'fa-triangle-exclamation');
+                    }
+
+                    if (isRegisterMode) {
+                        const userCred = await createUserWithEmailAndPassword(auth, email, password);
+                        await updateProfile(userCred.user, { displayName: username });
+                        window.showToast('Ağa başarıyla katıldınız!', 'fa-check');
+                    } else {
+                        await signInWithEmailAndPassword(auth, email, password);
+                        window.showToast('Uzamsal ağa dönüldü.', 'fa-check');
+                    }
                 }
             } catch (error) {
-                showToast(error.message.replace('Firebase:', ''), 'fa-xmark');
+                console.error("Giriş Hatası:", error);
+                window.showToast(error.message.replace('Firebase:', ''), 'fa-xmark');
                 btn.innerText = isRegisterMode ? "Sanal Kimlik Oluştur" : "Ağa Bağlan (Giriş)";
             }
         };
@@ -681,20 +731,37 @@
             window.location.reload();
         };
 
+        // Kullanıcıyı veritabanına kaydet/güncelle
+        const saveUserToNetwork = async (user) => {
+            try {
+                await setDoc(getDocRef("users", user.uid), {
+                    uid: user.uid,
+                    username: user.displayName || "Sanal Kimlik",
+                    email: user.email || "anonim",
+                    lastActive: serverTimestamp()
+                }, { merge: true });
+            } catch (error) {
+                console.error("Kullanıcı ağa kaydedilemedi:", error);
+            }
+        };
+
         // Auth Durum Dinleyicisi
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 currentUser = user;
+                saveUserToNetwork(user); // Sisteme bağlanan kişiyi ağa kaydet
+                
                 document.getElementById('auth-overlay').style.opacity = '0';
                 setTimeout(() => document.getElementById('auth-overlay').style.display = 'none', 500);
                 
                 // Profili Güncelle
                 document.getElementById('profile-name-display').innerText = user.displayName || 'Kullanıcı';
-                document.getElementById('profile-email-display').innerText = user.email;
+                document.getElementById('profile-email-display').innerText = isCanvas ? 'Önizleme Modu (Canvas)' : user.email;
 
                 // Verileri Çekmeye Başla
                 loadFeed();
                 loadChat();
+                loadUsers(); // Ağdaki kişileri çek
             } else {
                 currentUser = null;
                 document.getElementById('auth-overlay').style.display = 'flex';
@@ -757,7 +824,7 @@
         window.handleMediaSelect = (event) => {
             const file = event.target.files[0];
             if (!file) return;
-            if(file.size > 800000) return window.showToast('Dosya çok büyük. En fazla 800KB seçin.', 'fa-xmark'); // Firestore limit koruması
+            if(file.size > 800000) return window.showToast('Dosya çok büyük. En fazla 800KB seçin.', 'fa-xmark'); 
             const reader = new FileReader();
             reader.onload = (e) => {
                 currentSelectedMedia = e.target.result;
@@ -784,7 +851,7 @@
             btn.innerText = "Yükleniyor...";
             
             try {
-                await addDoc(collection(db, "posts"), {
+                await addDoc(getColl("posts"), {
                     uid: currentUser.uid,
                     username: currentUser.displayName || "Sanal Kimlik",
                     imageUrl: currentSelectedMedia,
@@ -804,7 +871,10 @@
         };
 
         function loadFeed() {
-            const q = query(collection(db, "posts"), orderBy("timestamp", "desc"));
+            if (!currentUser) return;
+            // Sıralamayı (orderBy) Canvas index kurallarını bozmamak için kod tarafında yapıyoruz
+            const q = query(getColl("posts"));
+            
             onSnapshot(q, (snapshot) => {
                 const feedContainer = document.getElementById('feed-container');
                 feedContainer.innerHTML = '';
@@ -820,9 +890,19 @@
                     return;
                 }
 
-                snapshot.forEach(docSnap => {
-                    const post = docSnap.data();
-                    const postId = docSnap.id;
+                // Verileri önce bir diziye alıyoruz
+                const postsData = [];
+                snapshot.forEach(docSnap => postsData.push({ id: docSnap.id, ...docSnap.data() }));
+
+                // Bellek içi (in-memory) sıralama - Yeniden Eskiye
+                postsData.sort((a, b) => {
+                    const tA = a.timestamp ? a.timestamp.toMillis() : 0;
+                    const tB = b.timestamp ? b.timestamp.toMillis() : 0;
+                    return tB - tA;
+                });
+
+                postsData.forEach(post => {
+                    const postId = post.id;
                     const isLiked = post.likes && post.likes.includes(currentUser.uid);
                     if(post.uid === currentUser.uid) myPostCount++;
 
@@ -871,7 +951,7 @@
         }
 
         window.toggleLike = async (postId) => {
-            const postRef = doc(db, "posts", postId);
+            const postRef = getDocRef("posts", postId);
             const snap = await getDoc(postRef);
             if(snap.exists()){
                 const post = snap.data();
@@ -910,14 +990,26 @@
         };
 
         function loadChat() {
-            const q = query(collection(db, "family_chat"), orderBy("timestamp", "asc"));
+            if (!currentUser) return;
+            const q = query(getColl("family_chat"));
+            
             onSnapshot(q, (snapshot) => {
                 const container = document.getElementById('chat-messages-container');
                 container.innerHTML = '';
                 let lastMsg = "Henüz mesaj yok";
+
+                // Verileri önce bir diziye alıyoruz
+                const msgsData = [];
+                snapshot.forEach(docSnap => msgsData.push({ id: docSnap.id, ...docSnap.data() }));
+
+                // Bellek içi (in-memory) sıralama - Eskiden Yeniye
+                msgsData.sort((a, b) => {
+                    const tA = a.timestamp ? a.timestamp.toMillis() : 0;
+                    const tB = b.timestamp ? b.timestamp.toMillis() : 0;
+                    return tA - tB;
+                });
                 
-                snapshot.forEach(docSnap => {
-                    const msg = docSnap.data();
+                msgsData.forEach(msg => {
                     const isMe = msg.uid === currentUser.uid;
                     let timeStr = "";
                     if(msg.timestamp) {
@@ -944,13 +1036,51 @@
             });
         }
 
+        // Ağa bağlı tüm kullanıcıları çek ve listele
+        function loadUsers() {
+            if (!currentUser) return;
+            const q = query(getColl("users"));
+            
+            onSnapshot(q, (snapshot) => {
+                const usersList = document.getElementById('network-users-list');
+                usersList.innerHTML = '';
+                
+                // Dinamik kişi sayıları
+                const totalUsers = snapshot.size;
+                document.getElementById('network-users-count').innerText = totalUsers;
+                document.getElementById('chat-room-member-count').innerText = `${totalUsers} kişi ağda`;
+
+                snapshot.forEach(docSnap => {
+                    const user = docSnap.data();
+                    const isMe = user.uid === currentUser.uid;
+                    const displayName = isMe ? `${user.username} (Sen)` : user.username;
+                    
+                    const userHTML = `
+                    <div class="vision-glass p-3 rounded-2xl flex items-center mb-2">
+                        <div class="w-10 h-10 rounded-full vision-glass p-[1px] mr-3 relative">
+                            <div class="w-full h-full bg-white/10 rounded-full flex justify-center items-center">
+                                <i class="fa-solid fa-user text-white/50 text-xs"></i>
+                            </div>
+                            <div class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border border-black shadow-[0_0_8px_#22c55e]"></div>
+                        </div>
+                        <div class="flex-1">
+                            <div class="font-medium text-sm text-white ${isMe ? 'text-white/60' : ''}">${displayName}</div>
+                            <div class="text-[10px] text-green-400">Çevrimiçi</div>
+                        </div>
+                        ${!isMe ? `<button class="vision-glass px-3 py-1.5 rounded-full text-[10px] text-white/80 hover:bg-white/10 btn-press" onclick="window.showToast('Özel mesaj altyapısı kuruluyor...', 'fa-envelope')">Mesaj</button>` : ''}
+                    </div>`;
+                    usersList.insertAdjacentHTML('beforeend', userHTML);
+                });
+            });
+        }
+
         window.handleChatEnter = (e) => { if (e.key === 'Enter') window.sendChatMessage(); };
         window.sendChatMessage = async () => {
             const input = document.getElementById('chat-msg-input');
             const text = input.value.trim();
             if (!text || !currentUser) return;
             input.value = '';
-            await addDoc(collection(db, "family_chat"), {
+            await addDoc(getColl("family_chat"), {
                 uid: currentUser.uid,
                 username: currentUser.displayName || "Sanal Kimlik",
                 text: text,
