@@ -113,7 +113,7 @@
         .glass-modal { transform: translateY(100%); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.1); width: 90%; max-width: 400px; }
         .glass-overlay.active .glass-modal { transform: translateY(0); }
         
-        .glass-toast { animation: toastPop 3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        .glass-toast { animation: toastPop 4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
         @keyframes toastPop {
             0% { transform: translate(-50%, -100%); opacity: 0; }
             10% { transform: translate(-50%, 0); opacity: 1; }
@@ -559,7 +559,7 @@
                     <button class="flex items-center p-4 hover:bg-white/10 rounded-2xl transition-colors btn-press" onclick="showToast('Bağlantı kopyalandı!', 'fa-link'); closeAllModals();">
                         <i class="fa-solid fa-link w-8 text-center text-white/70"></i> <span class="text-sm font-medium text-white">Bağlantıyı Kopyala</span>
                     </button>
-                    <button class="flex items-center p-4 hover:bg-white/10 rounded-2xl transition-colors btn-press text-red-400" onclick="showToast('Gönderi şikayet edildi', 'fa-flag'); closeAllModals();">
+                    <button class="flex items-center p-4 hover:bg-white/10 rounded-2xl transition-colors btn-press text-red-400" onclick="showToast('Gönderi şikayet edildi', 'fa-flag', true); closeAllModals();">
                         <i class="fa-regular fa-flag w-8 text-center"></i> <span class="text-sm font-medium">Şikayet Et</span>
                     </button>
                 </div>
@@ -636,19 +636,28 @@
             isCanvas = true; // Canvas ortamında olduğumuzu anlıyoruz
         } else {
             // Burası kendi sitenize / GitHub'a yüklediğinizde çalışacak olan kodlar
-        const firebaseConfig = {
+            // DİKKAT: BURAYA KENDİ FİREBASE PROJE BİLGİLERİNİ YAPIŞTIRMALISIN
+        firebaseConfig = {
             apiKey: "AIzaSyB_neU7BUAbd_5voqCUMLzjibbOc-29ATk",
             authDomain: "erustagram.firebaseapp.com",
             projectId: "erustagram",
             storageBucket: "erustagram.firebasestorage.app",
             messagingSenderId: "32784367395",
             appId: "1:32784367395:web:9679a64939254a759e5696"
-        };
+            };
+        }
 
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        // Initialize Firebase with Robust Error Handling
+        let app, auth, db;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch (error) {
+            console.error(error);
+            alert("KRİTİK HATA: Firebase sistemleri başlatılamadı!\n\nSebebi: Kodun içindeki 'firebaseConfig' kısmına Firebase ayarlarını yapıştırırken yanlışlıkla bir tırnak işaretini (\") veya virgülü silmiş olabilirsin. Lütfen kodunu kontrol et!");
+        }
+
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         // Canvas'ın zorunlu dosya yollarını (Paths) güvenli bir şekilde oluşturmak için yardımcı fonksiyon
@@ -666,109 +675,6 @@
         let currentSelectedMedia = null;
         let currentUser = null;
         let isRegisterMode = false;
-
-        // ==========================================
-        // KİMLİK DOĞRULAMA (AUTH) FONKSİYONLARI
-        // ==========================================
-
-        window.toggleAuthMode = () => {
-            isRegisterMode = !isRegisterMode;
-            document.getElementById('auth-username').classList.toggle('hidden');
-            document.getElementById('btn-auth-main').innerText = isRegisterMode ? "Sanal Kimlik Oluştur" : "Ağa Bağlan (Giriş)";
-            document.getElementById('btn-auth-switch').innerText = isRegisterMode ? "Zaten ağda mısın? Giriş Yap" : "Yeni misin? Sanal Kimlik Oluştur";
-        };
-
-        window.handleAuth = async () => {
-            const email = document.getElementById('auth-email').value;
-            const password = document.getElementById('auth-password').value;
-            const username = document.getElementById('auth-username').value;
-            const btn = document.getElementById('btn-auth-main');
-
-            btn.innerText = "Bağlanıyor...";
-            try {
-                // Eğer Canvas Önizleme ekranındaysak, eksik anahtar (API KEY) hatasını almamak için 
-                // sistemin bize sağladığı varsayılan giriş yöntemini kullanıyoruz.
-                if (isCanvas) {
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                    
-                    if (username) {
-                        await updateProfile(auth.currentUser, { displayName: username });
-                    }
-                    window.showToast('Önizleme ağında oturum açıldı.', 'fa-check');
-                } else {
-                    // Kendi Firebase projenizi bağladığınız zamanki akış
-                    if (!email || !password) {
-                        btn.innerText = isRegisterMode ? "Sanal Kimlik Oluştur" : "Ağa Bağlan (Giriş)";
-                        return window.showToast('Bilgileri eksiksiz girin.', 'fa-triangle-exclamation');
-                    }
-                    if (isRegisterMode && !username) {
-                        btn.innerText = "Sanal Kimlik Oluştur";
-                        return window.showToast('Lütfen görünen adınızı girin.', 'fa-triangle-exclamation');
-                    }
-
-                    if (isRegisterMode) {
-                        const userCred = await createUserWithEmailAndPassword(auth, email, password);
-                        await updateProfile(userCred.user, { displayName: username });
-                        window.showToast('Ağa başarıyla katıldınız!', 'fa-check');
-                    } else {
-                        await signInWithEmailAndPassword(auth, email, password);
-                        window.showToast('Uzamsal ağa dönüldü.', 'fa-check');
-                    }
-                }
-            } catch (error) {
-                console.error("Giriş Hatası:", error);
-                window.showToast(error.message.replace('Firebase:', ''), 'fa-xmark');
-                btn.innerText = isRegisterMode ? "Sanal Kimlik Oluştur" : "Ağa Bağlan (Giriş)";
-            }
-        };
-
-        window.logout = async () => {
-            await signOut(auth);
-            window.location.reload();
-        };
-
-        // Kullanıcıyı veritabanına kaydet/güncelle
-        const saveUserToNetwork = async (user) => {
-            try {
-                await setDoc(getDocRef("users", user.uid), {
-                    uid: user.uid,
-                    username: user.displayName || "Sanal Kimlik",
-                    email: user.email || "anonim",
-                    lastActive: serverTimestamp()
-                }, { merge: true });
-            } catch (error) {
-                console.error("Kullanıcı ağa kaydedilemedi:", error);
-            }
-        };
-
-        // Auth Durum Dinleyicisi
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                currentUser = user;
-                saveUserToNetwork(user); // Sisteme bağlanan kişiyi ağa kaydet
-                
-                document.getElementById('auth-overlay').style.opacity = '0';
-                setTimeout(() => document.getElementById('auth-overlay').style.display = 'none', 500);
-                
-                // Profili Güncelle
-                document.getElementById('profile-name-display').innerText = user.displayName || 'Kullanıcı';
-                document.getElementById('profile-email-display').innerText = isCanvas ? 'Önizleme Modu (Canvas)' : user.email;
-
-                // Verileri Çekmeye Başla
-                loadFeed();
-                loadChat();
-                loadUsers(); // Ağdaki kişileri çek
-            } else {
-                currentUser = null;
-                document.getElementById('auth-overlay').style.display = 'flex';
-                setTimeout(() => document.getElementById('auth-overlay').style.opacity = '1', 10);
-            }
-        });
-
 
         // ==========================================
         // UI VE SEKME GECISLERI (GLOBAL)
@@ -808,14 +714,144 @@
         };
         window.closeAllModals = () => document.getElementById('glass-overlay').classList.remove('active');
         window.closeModal = (event) => { if (event.target.id === 'glass-overlay') window.closeAllModals(); };
-        window.showToast = (message, iconClass = 'fa-info-circle') => {
+        
+        // Gelişmiş Hata Renklendirmeli Toast Sistemi
+        window.showToast = (message, iconClass = 'fa-info-circle', isError = false) => {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
-            toast.className = 'glass-toast vision-glass-heavy px-4 py-2.5 rounded-full flex items-center space-x-3 shadow-2xl border border-white/20 mt-2';
-            toast.innerHTML = `<i class="fa-solid ${iconClass} text-white/90"></i><span class="text-sm font-medium text-white">${message}</span>`;
+            // isError true ise arka plan kırmızı ağırlıklı olacak
+            const bgClass = isError ? 'bg-red-600/90 border-red-500' : 'vision-glass-heavy border-white/20';
+            toast.className = `glass-toast ${bgClass} px-5 py-3 rounded-full flex items-center space-x-3 shadow-[0_10px_40px_rgba(0,0,0,0.8)] border mt-2`;
+            toast.innerHTML = `<i class="fa-solid ${iconClass} text-white text-lg"></i><span class="text-sm font-medium text-white">${message}</span>`;
             container.appendChild(toast);
-            setTimeout(() => { if(toast.parentElement) toast.remove(); }, 3000);
+            setTimeout(() => { if(toast.parentElement) toast.remove(); }, 4000);
         };
+
+
+        // ==========================================
+        // KİMLİK DOĞRULAMA (AUTH) FONKSİYONLARI
+        // ==========================================
+
+        window.toggleAuthMode = () => {
+            isRegisterMode = !isRegisterMode;
+            document.getElementById('auth-username').classList.toggle('hidden');
+            document.getElementById('btn-auth-main').innerText = isRegisterMode ? "Sanal Kimlik Oluştur" : "Ağa Bağlan (Giriş)";
+            document.getElementById('btn-auth-switch').innerText = isRegisterMode ? "Zaten ağda mısın? Giriş Yap" : "Yeni misin? Sanal Kimlik Oluştur";
+        };
+
+        window.handleAuth = async () => {
+            if (!auth) {
+                return window.showToast("Sistem çalışmıyor! Kodun içindeki firebaseConfig ayarları hatalı yapıştırılmış.", "fa-triangle-exclamation", true);
+            }
+
+            const email = document.getElementById('auth-email').value;
+            const password = document.getElementById('auth-password').value;
+            const username = document.getElementById('auth-username').value;
+            const btn = document.getElementById('btn-auth-main');
+
+            btn.innerText = "Bağlanıyor...";
+            try {
+                // Eğer Canvas Önizleme ekranındaysak, eksik anahtar (API KEY) hatasını almamak için 
+                // sistemin bize sağladığı varsayılan giriş yöntemini kullanıyoruz.
+                if (isCanvas) {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                    
+                    if (username) {
+                        await updateProfile(auth.currentUser, { displayName: username });
+                    }
+                    window.showToast('Önizleme ağında oturum açıldı.', 'fa-check');
+                } else {
+                    // Kendi Firebase projenizi bağladığınız zamanki akış
+                    if (!email || !password) {
+                        btn.innerText = isRegisterMode ? "Sanal Kimlik Oluştur" : "Ağa Bağlan (Giriş)";
+                        return window.showToast('Lütfen e-posta ve şifrenizi girin.', 'fa-triangle-exclamation', true);
+                    }
+                    if (isRegisterMode && !username) {
+                        btn.innerText = "Sanal Kimlik Oluştur";
+                        return window.showToast('Lütfen görünen adınızı girin.', 'fa-triangle-exclamation', true);
+                    }
+
+                    if (isRegisterMode) {
+                        const userCred = await createUserWithEmailAndPassword(auth, email, password);
+                        await updateProfile(userCred.user, { displayName: username });
+                        window.showToast('Ağa başarıyla katıldınız!', 'fa-check');
+                    } else {
+                        await signInWithEmailAndPassword(auth, email, password);
+                        window.showToast('Uzamsal ağa dönüldü.', 'fa-check');
+                    }
+                }
+            } catch (error) {
+                console.error("Giriş Hatası:", error);
+                
+                // Hatayı kullanıcının anlayacağı dile çevir ve kırmızı baloncukla göster
+                let msg = error.message;
+                if(msg.includes('invalid-credential') || msg.includes('user-not-found') || msg.includes('wrong-password')) {
+                    msg = "E-posta veya şifre hatalı! Yeniysen önce alttaki 'Kayıt Ol' tuşuna bas.";
+                } else if(msg.includes('email-already-in-use')) {
+                    msg = "Bu e-posta adresi zaten ağa kayıtlı! Giriş yapmayı dene.";
+                } else if(msg.includes('weak-password')) {
+                    msg = "Güvenlik için şifre en az 6 haneli olmalıdır!";
+                } else if(msg.includes('operation-not-allowed')) {
+                    msg = "Firebase ayarlarından Email/Şifre girişini AÇMAYI unutmuşsunuz!";
+                } else if(msg.includes('api-key-not-valid')) {
+                    msg = "API Key hatalı! Koda Firebase ayarlarını eksik veya yanlış yapıştırmışsınız.";
+                } else if(msg.includes('missing-password')) {
+                    msg = "Lütfen şifrenizi giriniz!";
+                }
+                
+                window.showToast(msg, 'fa-triangle-exclamation', true);
+                btn.innerText = isRegisterMode ? "Sanal Kimlik Oluştur" : "Ağa Bağlan (Giriş)";
+            }
+        };
+
+        window.logout = async () => {
+            await signOut(auth);
+            window.location.reload();
+        };
+
+        // Kullanıcıyı veritabanına kaydet/güncelle
+        const saveUserToNetwork = async (user) => {
+            try {
+                await setDoc(getDocRef("users", user.uid), {
+                    uid: user.uid,
+                    username: user.displayName || "Sanal Kimlik",
+                    email: user.email || "anonim",
+                    lastActive: serverTimestamp()
+                }, { merge: true });
+            } catch (error) {
+                console.error("Kullanıcı ağa kaydedilemedi:", error);
+            }
+        };
+
+        // Auth Durum Dinleyicisi
+        if (auth) {
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    currentUser = user;
+                    saveUserToNetwork(user); // Sisteme bağlanan kişiyi ağa kaydet
+                    
+                    document.getElementById('auth-overlay').style.opacity = '0';
+                    setTimeout(() => document.getElementById('auth-overlay').style.display = 'none', 500);
+                    
+                    // Profili Güncelle
+                    document.getElementById('profile-name-display').innerText = user.displayName || 'Kullanıcı';
+                    document.getElementById('profile-email-display').innerText = isCanvas ? 'Önizleme Modu (Canvas)' : user.email;
+
+                    // Verileri Çekmeye Başla
+                    loadFeed();
+                    loadChat();
+                    loadUsers(); // Ağdaki kişileri çek
+                } else {
+                    currentUser = null;
+                    document.getElementById('auth-overlay').style.display = 'flex';
+                    setTimeout(() => document.getElementById('auth-overlay').style.opacity = '1', 10);
+                }
+            });
+        }
 
 
         // ==========================================
@@ -824,7 +860,7 @@
         window.handleMediaSelect = (event) => {
             const file = event.target.files[0];
             if (!file) return;
-            if(file.size > 800000) return window.showToast('Dosya çok büyük. En fazla 800KB seçin.', 'fa-xmark'); 
+            if(file.size > 800000) return window.showToast('Dosya çok büyük. En fazla 800KB seçin.', 'fa-xmark', true); 
             const reader = new FileReader();
             reader.onload = (e) => {
                 currentSelectedMedia = e.target.result;
@@ -845,7 +881,7 @@
         window.simulateShare = async () => {
             if(!currentUser) return;
             const caption = document.getElementById('post-caption-input').value.trim();
-            if (!currentSelectedMedia && caption === "") return window.showToast('Medya veya yazı gerekli!', 'fa-triangle-exclamation');
+            if (!currentSelectedMedia && caption === "") return window.showToast('Medya veya yazı gerekli!', 'fa-triangle-exclamation', true);
 
             const btn = document.getElementById('btn-share');
             btn.innerText = "Yükleniyor...";
@@ -865,7 +901,7 @@
                 window.switchTab('tab-home');
                 window.showToast('Anı başarıyla paylaşıldı!', 'fa-check-circle');
             } catch (error) {
-                window.showToast('Hata: ' + error.message, 'fa-xmark');
+                window.showToast('Hata: ' + error.message, 'fa-xmark', true);
             }
             btn.innerText = "Paylaş";
         };
